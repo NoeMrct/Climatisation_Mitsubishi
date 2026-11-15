@@ -31,7 +31,3 @@ export function formatDuration(ms: number): string {
   const minutes = total % 60;
   return minutes === 0 ? `${hours} h` : `${hours} h ${pad(minutes)}`;
 }
-
-export function formatAgo(ms: number): string {
-  return ms < 60_000 ? 'maintenant' : `il y a ${formatDuration(ms)}`;
-}

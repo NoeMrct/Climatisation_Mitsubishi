@@ -1,8 +1,8 @@
 import { useApp } from '../store/hooks';
 import { regulationLine } from '../store/view';
 import { LinkRow, Section, SubHeader } from '../ui/controls';
-import { LINKS } from '../ui/hooks';
 import { ModeList, OptionList } from '../ui/panels';
+import { LINKS } from '../ui/routes';
 
 export function Modes() {
   const snapshot = useApp();

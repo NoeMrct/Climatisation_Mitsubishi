@@ -1,4 +1,5 @@
 import type { Look } from '../domain/airflow';
+import type { ForecastDetail, Prediction } from '../domain/forecast';
 import { formatClock, formatTemp } from '../domain/format';
 import { activeRegulation } from '../domain/options';
 import { targetOf, type RegulationSettings } from '../domain/regulation';
@@ -119,13 +120,26 @@ export const ACTIVITY_LABEL: Record<Activity, string> = {
   standby: 'Compresseur en attente',
 };
 
+const SOON_MINUTES = 90;
+
+export function upcomingStart({ prediction }: Snapshot): Prediction | null {
+  return prediction && prediction.minutes <= SOON_MINUTES ? prediction : null;
+}
+
+export function forecastDetail(snapshot: Snapshot): ForecastDetail | null {
+  const { prediction, clim, history, thermal, now } = snapshot;
+  if (!prediction || clim.outdoorTemp === null) return null;
+  return { prediction, samples: history, roomTemp: clim.roomTemp, outdoor: clim.outdoorTemp, loss: thermal.loss, now };
+}
+
 function situation(snapshot: Snapshot): string | null {
-  const { clim, session, pausedUntil, prediction, nextEvent, regulation, now } = snapshot;
+  const { clim, session, pausedUntil, nextEvent, regulation, now } = snapshot;
+  const upcoming = upcomingStart(snapshot);
   if (clim.activity === 'standby') return 'compresseur en attente';
   if (session) return `objectif ${formatTemp(targetOf(activeRegulation(regulation, clim.settings), session.mode))}°`;
   if (pausedUntil !== null) return `pause jusqu’à ${formatClock(pausedUntil)}`;
-  if (prediction && prediction.minutes <= 90) {
-    return `${prediction.mode === 'heat' ? 'chauffe' : 'froid'} vers ${formatClock(prediction.crossAt)}`;
+  if (upcoming) {
+    return `${upcoming.mode === 'heat' ? 'chauffe' : 'froid'} vers ${formatClock(upcoming.crossAt)}`;
   }
   if (nextEvent) return describeEvent(nextEvent, now);
   if (regulation.enabled) return clim.settings.power ? 'commande manuelle' : 'régulation auto';
@@ -155,12 +169,13 @@ const shortSummary = (regulation: RegulationSettings): string => {
 };
 
 export function regulationLine(snapshot: Snapshot): string {
-  const { session, pausedUntil, prediction } = snapshot;
+  const { session, pausedUntil } = snapshot;
   const regulation = activeRegulation(snapshot.regulation, snapshot.clim.settings);
+  const upcoming = upcomingStart(snapshot);
   if (session) return `En cours : objectif ${formatTemp(targetOf(regulation, session.mode))}°`;
   if (pausedUntil !== null) return `En pause jusqu’à ${formatClock(pausedUntil)}`;
-  if (prediction && prediction.minutes <= 90) {
-    return `${prediction.mode === 'heat' ? 'Chauffage prévu' : 'Clim prévue'} vers ${formatClock(prediction.crossAt)}`;
+  if (upcoming) {
+    return `${upcoming.mode === 'heat' ? 'Chauffage prévu' : 'Clim prévue'} vers ${formatClock(upcoming.crossAt)}`;
   }
   return shortSummary(regulation);
 }

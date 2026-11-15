@@ -1,4 +1,4 @@
-export type DeviceClass = 'phone' | 'pc';
+import type { DeviceClass } from '../domain/notify';
 
 export function detectDeviceClass(): DeviceClass {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'pc';

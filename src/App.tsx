@@ -1,6 +1,7 @@
 import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import { Airflow } from './screens/Airflow';
 import { Desktop } from './screens/Desktop';
+import { Forecast } from './screens/Forecast';
 import { Home } from './screens/Home';
 import { Modes } from './screens/Modes';
 import { NotificationSettings } from './screens/NotificationSettings';
@@ -9,8 +10,8 @@ import { Regulation } from './screens/Regulation';
 import { Simulator } from './screens/Simulator';
 import { useApp } from './store/hooks';
 import { climLook } from './store/view';
-import { useHashRoute, useMediaQuery, type Route } from './ui/hooks';
-import { Toasts } from './ui/notifications';
+import { useHashRoute, useMediaQuery } from './ui/hooks';
+import type { Route } from './ui/routes';
 
 function screenFor(route: Route, wide: boolean): ReactNode {
   switch (route) {
@@ -18,6 +19,8 @@ function screenFor(route: Route, wide: boolean): ReactNode {
       return <Programme />;
     case 'auto':
       return <Regulation />;
+    case 'prevision':
+      return <Forecast />;
     case 'notifications':
       return <NotificationSettings />;
     case 'simulateur':
@@ -45,7 +48,6 @@ export default function App() {
   return (
     <div className="app" style={theme}>
       {screenFor(route, wide)}
-      <Toasts wide={wide} />
     </div>
   );
 }

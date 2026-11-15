@@ -1,10 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppNotification } from '../domain/notify';
+import type { PushStatus } from '../domain/push';
 import { makeSnapshot } from '../test/fixtures';
 import type { Snapshot } from './controller';
 import { RemoteController } from './RemoteController';
 
-const CACHE_KEY = 'clim.remote.snapshot';
+const CACHE_KEY = 'clim.remote.snapshot.v2';
+
+const push = vi.hoisted(() => ({
+  initialPushStatus: vi.fn<() => PushStatus>(),
+  resumePush: vi.fn<(device: string) => Promise<PushStatus>>(),
+  enablePush: vi.fn<(device: string) => Promise<PushStatus>>(),
+  disablePush: vi.fn<() => Promise<PushStatus>>(),
+}));
+
+vi.mock('../services/push', () => push);
 
 class FakeEventSource {
   static opened: FakeEventSource[] = [];
@@ -22,17 +31,6 @@ class FakeEventSource {
     this.closed = true;
   }
 }
-
-const TOAST: AppNotification = {
-  id: 'n1',
-  kind: 'start',
-  mode: 'heat',
-  at: 0,
-  title: 'Chauffage lancé',
-  body: 'Objectif 21°',
-  detail: null,
-  forecast: null,
-};
 
 const storage = new Map<string, string>();
 const fetchMock = vi.fn<typeof fetch>();
@@ -52,6 +50,10 @@ async function connected(snapshot: Snapshot = makeSnapshot()): Promise<RemoteCon
 beforeEach(() => {
   storage.clear();
   FakeEventSource.opened = [];
+  push.initialPushStatus.mockReset().mockReturnValue('off');
+  push.resumePush.mockReset().mockResolvedValue('off');
+  push.enablePush.mockReset().mockResolvedValue('on');
+  push.disablePush.mockReset().mockResolvedValue('off');
   fetchMock.mockReset();
   fetchMock.mockImplementation(() => Promise.resolve(json({ ok: true })));
   vi.stubGlobal('fetch', fetchMock);
@@ -74,7 +76,7 @@ describe('connexion au serveur', () => {
     const remote = await connected(snapshot);
     expect(fetchMock).toHaveBeenCalledWith('/api/snapshot', { signal: expect.any(AbortSignal) });
     expect(remote.getSnapshot().clim).toEqual(snapshot.clim);
-    expect(remote.getSnapshot()).toMatchObject({ deviceClass: 'pc', permission: 'unsupported' });
+    expect(remote.getSnapshot().push).toBe('off');
   });
 
   it('laisse la place au simulateur sans serveur ni copie locale', async () => {
@@ -191,40 +193,40 @@ describe('actions', () => {
   });
 });
 
-describe('notifications', () => {
-  it('masque une notification fermée sur cet appareil sans prévenir le serveur', async () => {
-    const remote = await connected({ ...makeSnapshot(), toast: TOAST });
+describe('notifications push', () => {
+  it('reprend l’abonnement de cet appareil au démarrage', async () => {
+    push.resumePush.mockResolvedValue('on');
+    const remote = await connected();
     const listener = vi.fn();
     remote.subscribe(listener);
-    expect(remote.getSnapshot().toast).toEqual(TOAST);
+    remote.start();
+    expect(push.resumePush).toHaveBeenCalledExactlyOnceWith('pc');
 
-    remote.dismissToast();
-    expect(remote.getSnapshot().toast).toBeNull();
+    await vi.waitFor(() => expect(remote.getSnapshot().push).toBe('on'));
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('active puis désactive les notifications de cet appareil sans passer par les actions du serveur', async () => {
+    const remote = await connected();
+    const listener = vi.fn();
+    remote.subscribe(listener);
+
+    await remote.enablePush();
+    expect(push.enablePush).toHaveBeenCalledExactlyOnceWith('pc');
+    expect(remote.getSnapshot().push).toBe('on');
+
+    await remote.disablePush();
+    expect(push.disablePush).toHaveBeenCalledOnce();
+    expect(remote.getSnapshot().push).toBe('off');
+    expect(listener).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('montre de nouveau une notification différente après une fermeture', async () => {
-    const remote = await connected({ ...makeSnapshot(), toast: TOAST });
-    remote.start();
-    remote.dismissToast();
-    lastSource().onmessage?.({ data: JSON.stringify({ ...makeSnapshot(), toast: { ...TOAST, id: 'n2' } }) });
-    expect(remote.getSnapshot().toast?.id).toBe('n2');
-  });
-
-  it('ne montre pas les notifications que cet appareil a désactivées', async () => {
-    const snapshot = makeSnapshot();
-    const remote = await connected({
-      ...snapshot,
-      toast: TOAST,
-      notificationPrefs: { ...snapshot.notificationPrefs, pc: false },
-    });
-    expect(remote.getSnapshot().toast).toBeNull();
-  });
-
-  it('reporte l’autorisation du système après une demande', async () => {
+  it('garde l’état de cet appareil quand le serveur diffuse le sien', async () => {
     const remote = await connected();
-    await remote.requestNotifications();
-    expect(remote.getSnapshot().permission).toBe('unsupported');
+    remote.start();
+    await remote.enablePush();
+    lastSource().onmessage?.({ data: JSON.stringify(makeSnapshot({ power: false })) });
+    expect(remote.getSnapshot()).toMatchObject({ push: 'on', clim: { settings: { power: false } } });
   });
 });

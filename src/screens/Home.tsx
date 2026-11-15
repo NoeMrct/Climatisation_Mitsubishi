@@ -2,8 +2,8 @@ import { ROOM_NAME } from '../domain/capabilities';
 import { useApp } from '../store/hooks';
 import { statusText } from '../store/view';
 import { RoundLink, StatusLine } from '../ui/controls';
-import { LINKS } from '../ui/hooks';
 import { ClimStage, TempBlock, Tiles } from '../ui/panels';
+import { LINKS } from '../ui/routes';
 
 export function Home() {
   const snapshot = useApp();

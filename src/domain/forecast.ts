@@ -68,6 +68,17 @@ export interface Prediction {
   rate: number;
 }
 
+export interface ForecastDetail {
+  prediction: Prediction;
+  samples: Sample[];
+  roomTemp: number;
+  outdoor: number;
+  loss: number;
+  now: number;
+}
+
+export const POSTPONE_MS = 60 * 60_000;
+
 export interface PredictInput {
   regulation: RegulationSettings;
   roomTemp: number;

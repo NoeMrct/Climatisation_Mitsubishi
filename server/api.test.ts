@@ -3,19 +3,35 @@ import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Snapshot } from '../src/store/controller';
+import { memoryStore } from '../src/store/storage';
 import { makeController } from '../src/test/fixtures';
 import { createRequestHandler } from './api';
+import { PushHub } from './push';
+import type { PushRequest } from './webPush';
+
+const SUBSCRIBER = {
+  endpoint: 'https://push.exemple.fr/telephone',
+  keys: {
+    p256dh: 'BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4',
+    auth: 'BTBZMqHH6r4Tts7J_aSIgg',
+  },
+  device: 'phone',
+};
 
 let folder: string;
 let server: Server;
 let origin: string;
 let app: ReturnType<typeof makeController>;
+let push: PushHub;
+
+const pushed = vi.fn<(request: PushRequest) => Promise<number>>(() => Promise.resolve(201));
 
 async function serve(staticDir: string): Promise<void> {
   app = makeController();
-  server = createServer(createRequestHandler({ controller: app.controller, staticDir }));
+  push = new PushHub({ store: memoryStore(), contact: 'https://exemple.fr/clim', send: pushed });
+  server = createServer(createRequestHandler({ controller: app.controller, staticDir, push }));
   await new Promise<void>((resolve) => {
     server.listen(0, '127.0.0.1', resolve);
   });
@@ -29,8 +45,12 @@ function stop(): Promise<void> {
   });
 }
 
-const post = (body: string): Promise<Response> =>
-  fetch(`${origin}/api/action`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+const send = (method: string, path: string, body: string): Promise<Response> =>
+  fetch(`${origin}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body });
+
+const post = (body: string): Promise<Response> => send('POST', '/api/action', body);
+
+const pushedTo = (): string[] => pushed.mock.calls.map(([request]) => request.target.endpoint);
 
 const isOn = (): boolean => app.controller.getSnapshot().clim.settings.power;
 
@@ -68,6 +88,7 @@ function eventReader(response: Response): () => Promise<Snapshot> {
 }
 
 beforeEach(async () => {
+  pushed.mockClear();
   folder = mkdtempSync(join(tmpdir(), 'clim-api-'));
   mkdirSync(join(folder, 'dist', 'assets'), { recursive: true });
   writeFileSync(join(folder, 'dist', 'index.html'), '<!doctype html><title>Clim</title>');
@@ -137,6 +158,55 @@ describe('API du serveur', () => {
     app.controller.command({ type: 'power', on: false });
     expect((await next()).clim.settings.power).toBe(false);
     await response.body?.cancel().catch(() => undefined);
+  });
+});
+
+describe('abonnement aux notifications push', () => {
+  const subscription = '/api/push/subscription';
+
+  it('donne la clé publique du serveur', async () => {
+    const response = await fetch(`${origin}/api/push/key`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ key: push.publicKey });
+  });
+
+  it('enregistre un appareil et lui envoie une notification de bienvenue', async () => {
+    const response = await send('POST', subscription, JSON.stringify(SUBSCRIBER));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(pushedTo()).toEqual([SUBSCRIBER.endpoint]);
+    expect(pushed.mock.calls[0][0].topic).toBe('clim-ready');
+
+    await send('POST', subscription, JSON.stringify(SUBSCRIBER));
+    expect(pushed).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuse un abonnement invalide, illisible ou trop volumineux', async () => {
+    const bodies = [
+      JSON.stringify({ ...SUBSCRIBER, endpoint: 'http://push.exemple.fr/telephone' }),
+      JSON.stringify({ ...SUBSCRIBER, device: 'montre' }),
+      JSON.stringify({ endpoint: SUBSCRIBER.endpoint }),
+      JSON.stringify({ ...SUBSCRIBER, autre: 'x'.repeat(200_001) }),
+      'null',
+      'pas du json',
+    ];
+    for (const body of bodies) {
+      const response = await send('POST', subscription, body);
+      expect(response.status).toBe(400);
+    }
+    expect(pushed).not.toHaveBeenCalled();
+  });
+
+  it('oublie un appareil qui se désabonne', async () => {
+    await send('POST', subscription, JSON.stringify(SUBSCRIBER));
+    const response = await send('DELETE', subscription, JSON.stringify({ endpoint: SUBSCRIBER.endpoint }));
+    expect(response.status).toBe(200);
+
+    await send('POST', subscription, JSON.stringify(SUBSCRIBER));
+    expect(pushed).toHaveBeenCalledTimes(2);
+    expect((await send('DELETE', subscription, '{}')).status).toBe(400);
+    expect((await send('DELETE', subscription, 'pas du json')).status).toBe(400);
   });
 });
 

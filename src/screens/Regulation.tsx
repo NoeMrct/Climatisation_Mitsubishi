@@ -11,9 +11,10 @@ import {
   type BandKey,
 } from '../domain/regulation';
 import { useApp, useController } from '../store/hooks';
+import { regulationLine, upcomingStart } from '../store/view';
 import { LinkRow, Stepper, SubHeader, Switch } from '../ui/controls';
-import { LINKS } from '../ui/hooks';
 import { Icon, type IconName } from '../ui/icons';
+import { LINKS } from '../ui/routes';
 
 const INACTIVE = '#5A606A';
 const TICKS: [number, number][] = [
@@ -127,7 +128,8 @@ function AutoCard({ mode }: { mode: AutoMode }) {
 }
 
 export function Regulation() {
-  const { regulation, pausedUntil } = useApp();
+  const snapshot = useApp();
+  const { regulation, pausedUntil } = snapshot;
   const controller = useController();
   const conflict = regulationConflict(regulation);
 
@@ -166,6 +168,9 @@ export function Regulation() {
           </span>
           <span>{conflict}</span>
         </div>
+      )}
+      {upcomingStart(snapshot) && (
+        <LinkRow href={LINKS.prevision} icon="clock" title="Prochain démarrage" sub={regulationLine(snapshot)} />
       )}
       <LinkRow href={LINKS.notifications} icon="bell" title="Notifications" sub="Prévision, lancement et arrêt" />
     </main>

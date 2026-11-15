@@ -17,9 +17,9 @@ import {
 } from '../domain/schedule';
 import { useApp, useController } from '../store/hooks';
 import { Section, Stepper, SubHeader, Switch, TimeField } from '../ui/controls';
-import { LINKS } from '../ui/hooks';
 import { Icon } from '../ui/icons';
 import { DayBar } from '../ui/panels';
+import { LINKS } from '../ui/routes';
 import { Sheet } from '../ui/Sheet';
 
 interface SlotSheetProps {
@@ -40,7 +40,7 @@ function SlotSheet({ initial, isNew, range, defaultTemp, onSave, onDelete, onClo
       <div className="fcard">
         <div className="fcard__head">
           <h2 className="sheet__title">{isNew ? 'Nouveau créneau' : 'Créneau'}</h2>
-          <button type="button" className="pc-toast__close" aria-label="Fermer" onClick={onClose}>
+          <button type="button" className="sheet__close" aria-label="Fermer" onClick={onClose}>
             <Icon name="close" size={16} strokeWidth={1.8} />
           </button>
         </div>
@@ -106,7 +106,7 @@ function CopySheet({ dayName, onConfirm, onClose }: CopySheetProps) {
       <div className="fcard">
         <div className="fcard__head">
           <h2 className="sheet__title">Appliquer aux autres jours</h2>
-          <button type="button" className="pc-toast__close" aria-label="Fermer" onClick={onClose}>
+          <button type="button" className="sheet__close" aria-label="Fermer" onClick={onClose}>
             <Icon name="close" size={16} strokeWidth={1.8} />
           </button>
         </div>

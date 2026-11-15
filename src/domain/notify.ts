@@ -1,9 +1,13 @@
 import { ROOM_NAME } from './capabilities';
-import type { Prediction, Sample } from './forecast';
+import type { Prediction } from './forecast';
 import { formatClock, formatDuration, formatTemp } from './format';
 import type { AutoMode } from './regulation';
 
 export type LeadMinutes = 15 | 30 | 60;
+
+export type DeviceClass = 'phone' | 'pc';
+
+export const DEVICE_CLASSES: readonly DeviceClass[] = ['phone', 'pc'];
 
 export interface NotificationPrefs {
   forecast: boolean;
@@ -36,28 +40,25 @@ export function isQuietTime(prefs: NotificationPrefs, timestamp: number): boolea
 
 export type NotificationKind = 'forecast' | 'start' | 'stop';
 
-export interface ForecastDetail {
-  prediction: Prediction;
-  samples: Sample[];
-  roomTemp: number;
-  outdoor: number;
-  loss: number;
-  sentAt: number;
-}
-
-export interface AppNotification {
-  id: string;
-  kind: NotificationKind;
-  mode: AutoMode;
-  at: number;
+export interface NotificationText {
   title: string;
   body: string;
-  detail: string | null;
-  forecast: ForecastDetail | null;
+}
+
+export interface AppNotification extends NotificationText {
+  kind: NotificationKind;
+  at: number;
+  silent: boolean;
+  devices: DeviceClass[];
 }
 
 export const SENDER = `Clim · ${ROOM_NAME}`;
 const room = `le ${ROOM_NAME.toLowerCase()}`;
+
+export const READY_TEXT: NotificationText = {
+  title: 'Notifications activées',
+  body: `Cet appareil recevra les alertes de la clim du ${ROOM_NAME.toLowerCase()}.`,
+};
 
 const outside = (outdoor: number | null): string =>
   outdoor === null ? '' : ` Il fait ${formatTemp(Math.round(outdoor))}° dehors.`;
@@ -69,9 +70,11 @@ export function leadText(minutes: number): string {
 
 export const leadLabel = (lead: LeadMinutes): string => (lead === 60 ? '1 h' : `${lead} min`);
 
-type Text = Pick<AppNotification, 'title' | 'body' | 'detail'>;
+export interface ForecastText extends NotificationText {
+  detail: string;
+}
 
-export function forecastText(prediction: Prediction, outdoor: number | null): Text {
+export function forecastText(prediction: Prediction, outdoor: number | null): ForecastText {
   const when = formatClock(prediction.crossAt);
   const delay = leadText(prediction.minutes);
   const threshold = formatTemp(prediction.threshold);
@@ -91,11 +94,10 @@ export function forecastText(prediction: Prediction, outdoor: number | null): Te
   };
 }
 
-export function startText(mode: AutoMode, roomTemp: number, target: number, outdoor: number | null): Text {
+export function startText(mode: AutoMode, roomTemp: number, target: number, outdoor: number | null): NotificationText {
   return {
     title: mode === 'heat' ? 'Chauffage lancé' : 'Rafraîchissement lancé',
     body: `${formatTemp(roomTemp)}° dans ${room}, objectif ${formatTemp(target)}°.${outside(outdoor)}`,
-    detail: null,
   };
 }
 
@@ -105,12 +107,11 @@ export function stopText(
   durationMs: number,
   outdoor: number | null,
   nextStartAt: number | null,
-): Text {
+): NotificationText {
   const what = mode === 'heat' ? 'Chauffage arrêté' : 'Rafraîchissement arrêté';
   const next = nextStartAt === null ? outside(outdoor) : ` Prochaine relance estimée vers ${formatClock(nextStartAt)}.`;
   return {
     title: `${formatTemp(target)}° atteints, clim coupée`,
     body: `${what} après ${formatDuration(durationMs)}.${next}`,
-    detail: null,
   };
 }

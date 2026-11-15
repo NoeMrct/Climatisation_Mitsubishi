@@ -1,5 +1,7 @@
 {
   "clim": "192.168.1.50",
   "port": 8787,
-  "meteo": { "latitude": 48.8566, "longitude": 2.3522 }
+  "meteo": { "latitude": 48.8566, "longitude": 2.3522 },
+  "https": null,
+  "contact": "https://github.com/NoeMrct/Climatisation_Mitsubishi"
 }

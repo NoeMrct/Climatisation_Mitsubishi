@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { attempt } from '../src/lib/attempt';
 import { REMOTE_ACTIONS, type AppApi, type RemoteAction } from '../src/store/api';
+import { readSubscriber, type PushHub } from './push';
 
 const MAX_BODY_LENGTH = 200_000;
 const IMMUTABLE = 'public, max-age=31536000, immutable';
@@ -25,6 +26,7 @@ export type RequestHandler = (request: IncomingMessage, response: ServerResponse
 export interface RequestHandlerOptions {
   controller: AppApi;
   staticDir: string;
+  push: PushHub;
 }
 
 interface ActionCall {
@@ -43,6 +45,11 @@ function parseAction(body: string): ActionCall | null {
   return { name: payload.name, args: payload.args as unknown[] };
 }
 
+const endpointOf = (payload: unknown): string | null => {
+  const endpoint = typeof payload === 'object' && payload !== null && 'endpoint' in payload ? payload.endpoint : null;
+  return typeof endpoint === 'string' ? endpoint : null;
+};
+
 function readBody(request: IncomingMessage): Promise<string | null> {
   return new Promise((resolveBody, reject) => {
     let body = '';
@@ -57,6 +64,11 @@ function readBody(request: IncomingMessage): Promise<string | null> {
   });
 }
 
+async function readJson(request: IncomingMessage): Promise<unknown> {
+  const body = await readBody(request);
+  return body === null ? null : attempt(() => JSON.parse(body) as unknown);
+}
+
 function sendJson(response: ServerResponse, status: number, value: unknown): void {
   response.writeHead(status, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(value));
@@ -67,7 +79,7 @@ function sendText(response: ServerResponse, status: number, text: string): void 
   response.end(text);
 }
 
-export function createRequestHandler({ controller, staticDir }: RequestHandlerOptions): RequestHandler {
+export function createRequestHandler({ controller, staticDir, push }: RequestHandlerOptions): RequestHandler {
   const root = resolve(staticDir);
   const index = join(root, 'index.html');
   const assets = join(root, 'assets') + sep;
@@ -101,11 +113,28 @@ export function createRequestHandler({ controller, staticDir }: RequestHandlerOp
     sendJson(response, 200, { ok: true });
   };
 
+  const subscribe = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    const subscriber = readSubscriber(await readJson(request));
+    if (!subscriber) return sendJson(response, 400, { error: 'abonnement invalide' });
+    void push.subscribe(subscriber);
+    sendJson(response, 200, { ok: true });
+  };
+
+  const unsubscribe = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    const endpoint = endpointOf(await readJson(request));
+    if (endpoint === null) return sendJson(response, 400, { error: 'abonnement invalide' });
+    push.unsubscribe(endpoint);
+    sendJson(response, 200, { ok: true });
+  };
+
   const handleApi = async (request: IncomingMessage, response: ServerResponse, path: string): Promise<void> => {
     const route = `${request.method} ${path}`;
     if (route === 'GET /api/snapshot') return sendJson(response, 200, controller.getSnapshot());
     if (route === 'GET /api/events') return openStream(request, response);
     if (route === 'POST /api/action') return runAction(request, response);
+    if (route === 'GET /api/push/key') return sendJson(response, 200, { key: push.publicKey });
+    if (route === 'POST /api/push/subscription') return subscribe(request, response);
+    if (route === 'DELETE /api/push/subscription') return unsubscribe(request, response);
     sendJson(response, 404, { error: 'introuvable' });
   };
 

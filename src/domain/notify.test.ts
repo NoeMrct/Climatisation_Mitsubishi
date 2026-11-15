@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAgo, formatDuration, formatTemp, parseMinute } from './format';
+import { formatDuration, formatTemp, parseMinute } from './format';
 import { DEFAULT_NOTIFICATION_PREFS, forecastText, isQuietTime, leadText, startText, stopText } from './notify';
 import type { Prediction } from './forecast';
 
@@ -13,8 +13,6 @@ describe('formats', () => {
     expect(formatDuration(48 * 60_000)).toBe('48 min');
     expect(formatDuration(95 * 60_000)).toBe('1 h 35');
     expect(formatDuration(125 * 60_000)).toBe('2 h 05');
-    expect(formatAgo(20_000)).toBe('maintenant');
-    expect(formatAgo(73 * 60_000)).toBe('il y a 1 h 13');
   });
 
   it('lit une heure saisie', () => {

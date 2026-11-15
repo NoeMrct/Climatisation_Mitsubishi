@@ -3,7 +3,7 @@ import { DAYS, dayIndexOf } from '../domain/schedule';
 import { useApp, useController } from '../store/hooks';
 import { ACTIVITY_LABEL } from '../store/view';
 import { Section, Stepper, SubHeader } from '../ui/controls';
-import { LINKS } from '../ui/hooks';
+import { LINKS } from '../ui/routes';
 
 const SPEEDS = [1, 10, 60];
 

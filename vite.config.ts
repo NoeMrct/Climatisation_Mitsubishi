@@ -6,6 +6,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src/worker',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
@@ -25,10 +28,7 @@ export default defineConfig({
           { src: 'pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        navigateFallbackDenylist: [/^\/api\//],
-      },
+      injectManifest: { rollupFormat: 'iife', globPatterns: ['**/*.{js,css,html,svg,png,woff2}'] },
     }),
   ],
   server: { proxy: { '/api': 'http://localhost:8787' } },

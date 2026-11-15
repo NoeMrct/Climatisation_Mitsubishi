@@ -4,9 +4,9 @@ import { DAYS, dayIndexOf, daySegments } from '../domain/schedule';
 import { useApp } from '../store/hooks';
 import { programText, regulationLine } from '../store/view';
 import { LinkRow, StatusLine } from '../ui/controls';
-import { LINKS } from '../ui/hooks';
 import { Icon } from '../ui/icons';
 import { AimChips, AimText, ClimStage, DayBar, FanControls, ModeList, OptionList, TempBlock } from '../ui/panels';
+import { LINKS } from '../ui/routes';
 
 interface DCardProps {
   title: string;

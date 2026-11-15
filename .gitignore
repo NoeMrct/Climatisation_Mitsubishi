@@ -9,3 +9,4 @@ dist-server
 !.vscode/extensions.json
 clim.config.json
 clim.state.json
+certs

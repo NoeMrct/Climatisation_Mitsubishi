@@ -1,6 +1,5 @@
-import { driftTemp } from '../domain/forecast';
+import { driftTemp, type ForecastDetail } from '../domain/forecast';
 import { formatClock, formatTemp } from '../domain/format';
-import type { ForecastDetail } from '../domain/notify';
 
 const LEFT = 34;
 const RIGHT = 302;
@@ -25,10 +24,10 @@ function ceilHalfHour(timestamp: number): number {
 const round = (value: number): number => Math.round(value * 10) / 10;
 
 export function ForecastChart({ detail }: { detail: ForecastDetail }) {
-  const { prediction, samples, roomTemp, outdoor, loss, sentAt } = detail;
+  const { prediction, samples, roomTemp, outdoor, loss, now } = detail;
   const heat = prediction.mode === 'heat';
   const accent = heat ? HEAT : COOL;
-  const start = floorHalfHour(sentAt - 45 * 60_000);
+  const start = floorHalfHour(now - 45 * 60_000);
   const end = ceilHalfHour(prediction.reachAt + 15 * 60_000);
   const low = Math.min(prediction.threshold, prediction.target) - 0.5;
   const high = Math.max(prediction.threshold, prediction.target) + 0.5;
@@ -39,12 +38,9 @@ export function ForecastChart({ detail }: { detail: ForecastDetail }) {
     return round(BOTTOM - ((bounded - low) * (BOTTOM - TOP)) / (high - low));
   };
 
-  const measured = [
-    ...samples.filter((sample) => sample.at >= start && sample.at < sentAt),
-    { at: sentAt, temp: roomTemp },
-  ];
+  const measured = [...samples.filter((sample) => sample.at >= start && sample.at < now), { at: now, temp: roomTemp }];
   const measuredPath = `M${measured.map((sample) => `${x(sample.at)} ${y(sample.temp)}`).join('L')}`;
-  const now = { x: x(sentAt), y: y(roomTemp) };
+  const current = { x: x(now), y: y(roomTemp) };
   const cross = { x: x(prediction.crossAt), y: y(prediction.threshold) };
   const reach = { x: x(prediction.reachAt), y: y(prediction.target) };
   const run = prediction.reachAt - prediction.crossAt;
@@ -60,7 +56,7 @@ export function ForecastChart({ detail }: { detail: ForecastDetail }) {
 
   const crossBelow = prediction.threshold < prediction.target;
   const label =
-    `Température du salon : ${formatTemp(roomTemp)}° à ${formatClock(sentAt)}, ` +
+    `Température du salon : ${formatTemp(roomTemp)}° à ${formatClock(now)}, ` +
     `${formatTemp(prediction.threshold)}° prévus à ${formatClock(prediction.crossAt)}, ` +
     `puis ${formatTemp(prediction.target)}° vers ${formatClock(prediction.reachAt)} une fois ` +
     (heat ? 'le chauffage lancé' : 'la clim lancée');
@@ -75,13 +71,13 @@ export function ForecastChart({ detail }: { detail: ForecastDetail }) {
           </text>
         </g>
       ))}
-      <path d={`M${now.x} 18V${BOTTOM}`} stroke="#3A3F47" strokeWidth="1" />
-      <text x={now.x} y="12" fontSize="11" fontWeight="600" fill="#A9AEB6" textAnchor="middle">
+      <path d={`M${current.x} 18V${BOTTOM}`} stroke="#3A3F47" strokeWidth="1" />
+      <text x={current.x} y="12" fontSize="11" fontWeight="600" fill="#A9AEB6" textAnchor="middle">
         maintenant
       </text>
       <path d={measuredPath} stroke="#F3F4F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <path
-        d={`M${now.x} ${now.y}L${cross.x} ${cross.y}`}
+        d={`M${current.x} ${current.y}L${cross.x} ${cross.y}`}
         stroke="#A9AEB6"
         strokeWidth="2"
         strokeLinecap="round"
@@ -100,7 +96,7 @@ export function ForecastChart({ detail }: { detail: ForecastDetail }) {
         strokeLinecap="round"
         strokeDasharray="1 5"
       />
-      <circle cx={now.x} cy={now.y} r="3.5" fill="#F3F4F6" />
+      <circle cx={current.x} cy={current.y} r="3.5" fill="#F3F4F6" />
       <circle cx={cross.x} cy={cross.y} r="4.5" fill={accent} stroke="#131518" strokeWidth="2" />
       <circle cx={reach.x} cy={reach.y} r="4.5" fill={accent} stroke="#131518" strokeWidth="2" />
       <text

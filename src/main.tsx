@@ -4,6 +4,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App';
+import { onNotificationLink } from './services/push';
 import { AppProvider } from './store/AppProvider';
 import { createApp } from './store/controller';
 import { RemoteController } from './store/RemoteController';
@@ -11,6 +12,9 @@ import { RemoteController } from './store/RemoteController';
 const controller = (await RemoteController.connect()) ?? createApp();
 
 registerSW({ immediate: true });
+onNotificationLink((link) => {
+  window.location.hash = link;
+});
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Élément #root introuvable dans index.html.');

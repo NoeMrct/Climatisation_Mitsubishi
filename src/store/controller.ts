@@ -14,16 +14,18 @@ import {
 } from '../domain/forecast';
 import {
   DEFAULT_NOTIFICATION_PREFS,
+  DEVICE_CLASSES,
   forecastText,
   isQuietTime,
   startText,
   stopText,
   type AppNotification,
-  type ForecastDetail,
   type NotificationKind,
   type NotificationPrefs,
+  type NotificationText,
 } from '../domain/notify';
 import { activeRegulation } from '../domain/options';
+import type { PushStatus } from '../domain/push';
 import {
   DEFAULT_REGULATION,
   IDLE_RUNTIME,
@@ -37,13 +39,6 @@ import {
 } from '../domain/regulation';
 import { defaultSchedule, eventsBetween, nextEvent, type Schedule, type ScheduleEvent } from '../domain/schedule';
 import type { ClimCommand, ClimState } from '../domain/types';
-import { detectDeviceClass, type DeviceClass } from '../services/platform';
-import {
-  requestSystemPermission,
-  showSystemNotification,
-  systemPermission,
-  type SystemPermission,
-} from '../services/systemNotifications';
 import { browserStore, loadState, saveState, type KeyValueStore, type PersistedState } from './storage';
 
 const TICK_MS = 1000;
@@ -53,6 +48,7 @@ const HISTORY_MS = 3 * 3_600_000;
 const IDLE_WINDOW_MS = 2 * 3_600_000;
 const CHART_WINDOW_MS = 45 * 60_000;
 const HOUR_MS = 3_600_000;
+const FORECAST_QUIET_LEADS = 2;
 
 export const MANUAL_PAUSE_MS = HOUR_MS;
 
@@ -67,21 +63,20 @@ export interface Snapshot {
   now: number;
   clim: ClimState;
   device: { kind: DeviceKind; label: string };
-  deviceClass: DeviceClass;
   regulation: RegulationSettings;
   session: AutoSession | null;
   pausedUntil: number | null;
   prediction: Prediction | null;
+  history: Sample[];
   notificationPrefs: NotificationPrefs;
-  permission: SystemPermission;
+  push: PushStatus;
   schedule: Schedule;
   nextEvent: ScheduleEvent | null;
-  toast: AppNotification | null;
   thermal: ThermalModel;
   simulator: { speed: number } | null;
 }
 
-type Announcer = (notification: AppNotification, silent: boolean) => void;
+type Announcer = (notification: AppNotification) => void;
 
 export interface ControllerOptions {
   device: ClimDevice;
@@ -90,8 +85,6 @@ export interface ControllerOptions {
   simulator?: { device: SimulatedClim; clock: SimClock } | null;
   saved?: PersistedState | null;
   runtime?: RegulationRuntime;
-  deviceClass?: DeviceClass;
-  filterByDevice?: boolean;
   announce?: Announcer;
 }
 
@@ -100,8 +93,6 @@ export class AppController {
   private readonly clock: Clock;
   private readonly store: KeyValueStore;
   private readonly sim: { device: SimulatedClim; clock: SimClock } | null;
-  private readonly deviceClass: DeviceClass;
-  private readonly filterByDevice: boolean;
   private readonly announce: Announcer;
   private readonly listeners = new Set<() => void>();
 
@@ -113,10 +104,8 @@ export class AppController {
   private history: Sample[] = [];
   private idle: Sample[] = [];
   private prediction: Prediction | null = null;
-  private toast: AppNotification | null = null;
   private forecastSent = false;
-  private notificationCount = 0;
-  private permission: SystemPermission = systemPermission();
+  private forecastQuietUntil = Number.NEGATIVE_INFINITY;
   private lastTick: number;
   private lastSampleAt = Number.NEGATIVE_INFINITY;
   private lastSavedAt = 0;
@@ -133,8 +122,6 @@ export class AppController {
     this.clock = options.clock;
     this.store = options.store;
     this.sim = options.simulator ?? null;
-    this.deviceClass = options.deviceClass ?? 'pc';
-    this.filterByDevice = options.filterByDevice ?? true;
     this.announce = options.announce ?? (() => {});
     this.regulation = saved?.regulation ?? DEFAULT_REGULATION;
     this.runtime = options.runtime ?? saved?.runtime ?? IDLE_RUNTIME;
@@ -257,10 +244,10 @@ export class AppController {
     };
     this.prediction = null;
     this.forecastSent = false;
+    this.forecastQuietUntil = Number.NEGATIVE_INFINITY;
     this.idle = [];
-    if (this.toast?.kind === 'forecast') this.toast = null;
     if (announce && this.prefs.onStart) {
-      this.notify('start', mode, now, startText(mode, before.roomTemp, target, before.outdoorTemp), null);
+      this.notify('start', now, startText(mode, before.roomTemp, target, before.outdoorTemp));
     }
   }
 
@@ -284,13 +271,7 @@ export class AppController {
         ? hoursToReach(state.roomTemp, triggerOf(this.activeRegulation(), 'heat'), state.outdoorTemp, this.thermal.loss)
         : null;
     const nextStartAt = hours === null ? null : now + hours * HOUR_MS;
-    this.notify(
-      'stop',
-      session.mode,
-      now,
-      stopText(session.mode, target, duration, state.outdoorTemp, nextStartAt),
-      null,
-    );
+    this.notify('stop', now, stopText(session.mode, target, duration, state.outdoorTemp, nextStartAt));
   }
 
   private forecast(now: number): void {
@@ -309,36 +290,18 @@ export class AppController {
     this.prediction = prediction;
 
     if (!prediction || prediction.minutes > this.prefs.lead * 1.5) this.forecastSent = false;
-    if (!prediction) {
-      if (this.toast?.kind === 'forecast') this.toast = null;
-      return;
-    }
+    if (!prediction) return;
     const due = prediction.minutes <= this.prefs.lead && prediction.minutes >= 2;
-    if (!this.prefs.forecast || this.forecastSent || !due || state.outdoorTemp === null) return;
+    if (!this.prefs.forecast || this.forecastSent || !due || now < this.forecastQuietUntil) return;
     this.forecastSent = true;
-    const detail: ForecastDetail = {
-      prediction,
-      samples: this.history.filter((item) => item.at >= now - CHART_WINDOW_MS),
-      roomTemp: state.roomTemp,
-      outdoor: state.outdoorTemp,
-      loss: this.thermal.loss,
-      sentAt: now,
-    };
-    this.notify('forecast', prediction.mode, now, forecastText(prediction, state.outdoorTemp), detail);
+    this.forecastQuietUntil = now + this.prefs.lead * FORECAST_QUIET_LEADS * 60_000;
+    this.notify('forecast', now, forecastText(prediction, state.outdoorTemp));
   }
 
-  private notify(
-    kind: NotificationKind,
-    mode: AutoMode,
-    at: number,
-    text: Pick<AppNotification, 'title' | 'body' | 'detail'>,
-    forecast: ForecastDetail | null,
-  ): void {
-    if (this.filterByDevice && !this.prefs[this.deviceClass]) return;
-    this.notificationCount += 1;
-    const notification: AppNotification = { id: `n${this.notificationCount}`, kind, mode, at, ...text, forecast };
-    this.toast = notification;
-    this.announce(notification, isQuietTime(this.prefs, at));
+  private notify(kind: NotificationKind, at: number, { title, body }: NotificationText): void {
+    const devices = DEVICE_CLASSES.filter((device) => this.prefs[device]);
+    if (devices.length === 0) return;
+    this.announce({ kind, at, title, body, silent: isQuietTime(this.prefs, at), devices });
   }
 
   command(command: ClimCommand): void {
@@ -399,16 +362,9 @@ export class AppController {
     });
   }
 
-  dismissToast(): void {
-    this.act(() => {
-      this.toast = null;
-    });
-  }
-
   startNow(): void {
     this.act((now) => {
-      const mode = this.prediction?.mode ?? this.toast?.mode;
-      this.toast = null;
+      const mode = this.prediction?.mode;
       if (mode && !this.device.getState().settings.power) this.startAuto(mode, now, false);
     });
   }
@@ -432,12 +388,14 @@ export class AppController {
     this.runtime = { ...this.runtime, pausedUntil: until };
     this.prediction = null;
     this.forecastSent = false;
-    this.toast = null;
   }
 
-  async requestNotifications(): Promise<void> {
-    this.permission = await requestSystemPermission();
-    this.touch();
+  enablePush(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  disablePush(): Promise<void> {
+    return Promise.resolve();
   }
 
   setOutdoorTemp(value: number): void {
@@ -474,8 +432,8 @@ export class AppController {
       this.history = [];
       this.idle = [];
       this.prediction = null;
-      this.toast = null;
       this.forecastSent = false;
+      this.forecastQuietUntil = Number.NEGATIVE_INFINITY;
       this.lastTick = now;
       this.lastSampleAt = Number.NEGATIVE_INFINITY;
       this.dirty = true;
@@ -522,16 +480,15 @@ export class AppController {
       now,
       clim: this.device.getState(),
       device: { kind: this.device.kind, label: this.device.label },
-      deviceClass: this.deviceClass,
       regulation: this.regulation,
       session: this.runtime.session,
       pausedUntil: this.regulation.enabled && pausedUntil !== null && pausedUntil > now ? pausedUntil : null,
       prediction: this.prediction,
+      history: this.history.filter((sample) => sample.at >= now - CHART_WINDOW_MS),
       notificationPrefs: this.prefs,
-      permission: this.permission,
+      push: 'unsupported',
       schedule: this.schedule,
       nextEvent: nextEvent(this.schedule, now),
-      toast: this.toast,
       thermal: this.thermal,
       simulator: this.sim ? { speed: this.sim.clock.speed } : null,
     };
@@ -563,9 +520,5 @@ export function createApp(store: KeyValueStore = browserStore): AppController {
     simulator: { device, clock },
     saved,
     runtime: saved ? undefined : firstRuntime(now),
-    deviceClass: detectDeviceClass(),
-    announce: (notification, silent) => {
-      void showSystemNotification(notification, silent);
-    },
   });
 }

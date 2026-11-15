@@ -1,6 +1,6 @@
 import { Section, SubHeader } from '../ui/controls';
-import { LINKS } from '../ui/hooks';
 import { AimChips, ClimStage, FanControls } from '../ui/panels';
+import { LINKS } from '../ui/routes';
 
 export function Airflow() {
   return (

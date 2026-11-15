@@ -15,10 +15,10 @@ import { formatTemp } from '../domain/format';
 import type { Segment } from '../domain/schedule';
 import type { ClimCommand, FanSpeed } from '../domain/types';
 import { useApp, useController } from '../store/hooks';
-import { LINKS } from './hooks';
 import { MODE_LIST, climLook, fanLabel, modeInfo } from '../store/view';
 import { Radio, Switch } from './controls';
 import { Icon, type IconName } from './icons';
+import { LINKS } from './routes';
 import { Stage, StageBlock } from './Stage';
 
 export function ClimStage({ desktop = false }: { desktop?: boolean }) {

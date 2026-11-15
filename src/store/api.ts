@@ -14,11 +14,11 @@ export interface AppApi {
   resumeRegulation(): void;
   setNotificationPrefs(patch: Partial<NotificationPrefs>): void;
   setSchedule(next: Schedule): void;
-  dismissToast(): void;
   startNow(): void;
   postpone(durationMs: number): void;
   skipUntilMorning(): void;
-  requestNotifications(): Promise<void>;
+  enablePush(): Promise<void>;
+  disablePush(): Promise<void>;
   setOutdoorTemp(value: number): void;
   setRoomTemp(value: number): void;
   setSpeed(speed: number): void;

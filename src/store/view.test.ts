@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { makeController, makeSnapshot } from '../test/fixtures';
-import { ACCENTS, climLook, fanLabel, modeInfo, programText, regulationLine, statusText } from './view';
+import {
+  ACCENTS,
+  climLook,
+  fanLabel,
+  forecastDetail,
+  modeInfo,
+  programText,
+  regulationLine,
+  statusText,
+  upcomingStart,
+} from './view';
 
 describe('aspect de la clim', () => {
   it('associe chaque mode à sa couleur et à son libellé', () => {
@@ -83,5 +93,41 @@ describe('lignes d’état', () => {
     expect(programText(controller.getSnapshot())).toBe('Aucun programme actif');
     controller.setSchedule({ ...controller.getSnapshot().schedule, weeklyEnabled: true });
     expect(programText(controller.getSnapshot())).toBe('Marche programmée à 17:30');
+  });
+});
+
+describe('prévision du prochain démarrage', () => {
+  it('rassemble la prévision, les relevés et la météo pour le tracé', () => {
+    const { controller, advance } = makeController({ power: false });
+    advance(3);
+    const snapshot = controller.getSnapshot();
+    const detail = forecastDetail(snapshot);
+    expect(detail).toEqual({
+      prediction: snapshot.prediction,
+      samples: snapshot.history,
+      roomTemp: snapshot.clim.roomTemp,
+      outdoor: 4,
+      loss: snapshot.thermal.loss,
+      now: snapshot.now,
+    });
+    expect(detail?.prediction.mode).toBe('heat');
+    expect(detail?.samples.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('ne trace rien sans prévision', () => {
+    const { controller } = makeController();
+    expect(forecastDetail(controller.getSnapshot())).toBeNull();
+    expect(upcomingStart(controller.getSnapshot())).toBeNull();
+  });
+
+  it('ne retient un démarrage que s’il est attendu dans l’heure et demie', () => {
+    const { controller, advance } = makeController({ power: false });
+    advance(3);
+    const snapshot = controller.getSnapshot();
+    const { prediction } = snapshot;
+    if (!prediction) throw new Error('prévision attendue');
+    expect(upcomingStart(snapshot)).toBe(prediction);
+    expect(upcomingStart({ ...snapshot, prediction: { ...prediction, minutes: 90 } })?.minutes).toBe(90);
+    expect(upcomingStart({ ...snapshot, prediction: { ...prediction, minutes: 91 } })).toBeNull();
   });
 });
